@@ -9,9 +9,13 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from geo_data import build_city_to_province
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 DEFAULT_DATA = os.path.join(ROOT, "data", "shops.json")
+OVERRIDES_PATH = os.path.join(ROOT, "data", "manual_overrides.json")
 GEO_PATH = os.path.join(HERE, "china_geo.min.json")
 OUT_HTML = os.path.join(ROOT, "index.html")
 
@@ -112,6 +116,39 @@ HTML = r"""<!DOCTYPE html>
   .empty{text-align:center; color:var(--muted); padding:60px 20px; font-size:14px}
   footer{margin-top:40px; font-size:12px; color:var(--muted); text-align:center; line-height:1.8}
   @media (max-width:560px){.grid{grid-template-columns:1fr} #map{height:420px}}
+
+  /* 补全模式（编辑待补全项） */
+  #editview{margin-top:18px}
+  .edittb{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:14px 16px; margin-bottom:16px; display:flex; flex-direction:column; gap:10px}
+  .edittb .editprogress{font-size:15px; color:var(--ink)}
+  .edittb .editprogress b{color:var(--green); font-size:20px; font-weight:800}
+  .editbtns{display:flex; flex-wrap:wrap; gap:8px}
+  .editbtns .toggle{background:#fff}
+  .edithint{font-size:12px; color:var(--muted); line-height:1.7}
+  .edithint code{background:#f1ebe1; padding:1px 5px; border-radius:4px; font-size:11px; color:#7a4b22}
+  .editcard{display:grid; grid-template-columns:210px 1fr; gap:16px; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin-bottom:12px}
+  .editctx{display:flex; flex-direction:column; gap:8px; min-width:0}
+  .editcover{aspect-ratio:16/9; background:#eee; border-radius:8px; overflow:hidden}
+  .editcover img{width:100%; height:100%; object-fit:cover; display:block}
+  .editinfo{display:flex; flex-direction:column; gap:5px; min-width:0}
+  .edititle{font-size:13px; font-weight:600; color:var(--ink); display:-webkit-box; -webkit-line-clamp:3;
+    -webkit-box-orient:vertical; overflow:hidden}
+  .edititle:hover{color:var(--accent)}
+  .editmeta{font-size:11px; color:var(--muted)}
+  .editfields{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; align-content:start}
+  .editfields label{display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted)}
+  .editfields label.full{grid-column:1/-1}
+  .editfields input,.editfields select{padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; background:#fff; color:var(--ink)}
+  .editfields input.unresolved{border-color:var(--amber); background:#fffdf5}
+  .editrowbtns{grid-column:1/-1; display:flex; align-items:center; gap:10px; margin-top:2px}
+  .editbadge{font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px}
+  .editbadge.done{background:#e7f4ec; color:var(--green)}
+  .editbadge.missing{background:var(--amber-bg); color:#8a5a12}
+  .editrowbtns .toggle{padding:6px 12px; font-size:12px}
+  @media (max-width:560px){.editcard{grid-template-columns:1fr} .editfields{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -162,6 +199,21 @@ HTML = r"""<!DOCTYPE html>
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none">没有符合条件的记录</div>
   <footer id="foot"></footer>
+
+  <div id="editview" style="display:none">
+    <datalist id="editcities"></datalist>
+    <div class="edittb">
+      <div class="editprogress"><b id="editDone">0</b> / <span id="editTotal">0</span> 已补全</div>
+      <div class="editbtns">
+        <button class="toggle" id="editExport">⬇️ 导出 manual_overrides.json</button>
+        <button class="toggle" id="editCopy">📋 复制 JSON</button>
+        <button class="toggle" id="editClear">🗑 清空本地缓存</button>
+        <button class="toggle" id="editExit">✕ 退出补全</button>
+      </div>
+      <div class="edithint">编辑会自动存到浏览器本地（刷新不丢）。导出后把文件覆盖到 <code>data/manual_overrides.json</code>，再运行 <code>python3 scripts/build_site.py</code> 并提交即可发布。省份会按地点自动填充（顺德/潮汕等待定地名需手填）。</div>
+    </div>
+    <div id="editlist"></div>
+  </div>
 </div>
 
 <script>
@@ -170,6 +222,7 @@ const META = __META__;
 const CHINA_GEO = __GEO__;
 const CITY_COORDS = __COORDS__;
 const PROV_FULL = __PROVFULL__;
+const C2P = __C2P__;
 
 const el = id => document.getElementById(id);
 const fmtPlay = n => n>=10000 ? (n/10000).toFixed(1)+'万' : (n!=null?n:'-');
@@ -195,7 +248,7 @@ function renderStats(){
   const locs=uniqLocs().length, rev=DATA.filter(needsReview).length;
   el('stats').innerHTML=`<div class="stat"><b>${all}</b>个视频</div>
     <div class="stat"><b>${td}</b>个探店</div><div class="stat"><b>${locs}</b>个城市</div>
-    <div class="stat"><b>${rev}</b>项待人工补全</div>`;
+    <div class="stat" id="statRev"><b>${rev}</b>项待人工补全</div>`;
   const u=uniqLocs(), max=u.length?u[0][1]:1;
   el('locchart').innerHTML=u.slice(0,12).map(([l,c])=>
     `<div class="locbar"><b>${esc(l)}</b><div class="track"><div class="fill" style="width:${c/max*100}%"></div></div><span>${c}</span></div>`).join('');
@@ -325,10 +378,177 @@ function bind(){
   el('tReview').addEventListener('click',e=>{state.reviewOnly=!state.reviewOnly; e.target.classList.toggle('on',state.reviewOnly); state.view==='map'?renderMap():renderList();});
   el('vList').addEventListener('click',()=>switchView('list'));
   el('vMap').addEventListener('click',()=>switchView('map'));
+  el('editExport').addEventListener('click', exportOverrides);
+  el('editCopy').addEventListener('click', e=>copyOverrides(e.target));
+  el('editClear').addEventListener('click', clearAllOverrides);
+  el('editExit').addEventListener('click', exitEditMode);
 }
 
+/* ---- 补全模式：可视化编辑待补全项（localStorage 自动存档 + 导出） ---- */
+const OVERRIDES_KEY = 'suipo-overrides-v1';
+let overrides = {};
+const ORIG = {};  // bvid -> 加载时各可编辑字段的原始快照（用于「重置」）
+
+function loadOverrides(){
+  try{ overrides = JSON.parse(localStorage.getItem(OVERRIDES_KEY)||'{}') || {}; }
+  catch(e){ overrides = {}; }
+  return overrides;
+}
+function saveOverridesAll(){ localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides)); }
+function saveOverride(bvid, patch){
+  const cur = Object.assign(overrides[bvid]||{}, patch);
+  overrides[bvid] = cur;
+  if(Object.values(cur).every(v=>v===''||v==null)) delete overrides[bvid];  // 全空视为无改动
+  saveOverridesAll();
+}
+function clearOverride(bvid){ delete overrides[bvid]; saveOverridesAll(); }
+function clearAllOverrides(){
+  if(!confirm('清空所有本地编辑？已导出 / 已烘焙到站点的不受影响。')) return;
+  localStorage.removeItem(OVERRIDES_KEY);
+  location.reload();
+}
+function applyOverrides(){
+  loadOverrides();
+  const byBvid = {};
+  DATA.forEach((d,i)=>{ byBvid[d.bvid]=i; ORIG[d.bvid]={shop_name:d.shop_name, location:d.location, province:d.province, confidence:d.confidence, note:d.note, is_tandian:d.is_tandian}; });
+  for(const bvid in overrides){
+    const i = byBvid[bvid];
+    if(i!=null) Object.assign(DATA[i], overrides[bvid]);
+  }
+}
+
+function reviewReason(d){
+  const miss=[];
+  if(!d.shop_name) miss.push('店名');
+  if(!d.location) miss.push('地点');
+  if(d.confidence!=='high') miss.push('置信度');
+  return miss;
+}
+function populateCityDatalist(){
+  const dl = el('editcities');
+  if(dl && !dl.childElementCount) dl.innerHTML = Object.keys(C2P).map(c=>`<option value="${esc(c)}">`).join('');
+}
+function editCardHTML(d){
+  const miss = reviewReason(d), done = miss.length===0;
+  const conf = d.confidence||'medium';
+  const cover = d.cover?`<img loading="lazy" src="${esc(d.cover)}" alt="">`:'';
+  return `<div class="editcard" data-bvid="${esc(d.bvid)}">
+    <div class="editctx">
+      <div class="editcover">${cover}</div>
+      <div class="editinfo">
+        <a class="edititle" href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.title)}">${esc(d.title)}</a>
+        <div class="editmeta">▶ ${fmtPlay(d.play)} · ${esc(d.pubdate||'-')} · ${esc(d.bvid)}</div>
+        ${d.note?`<div class="note">⚠ ${esc(d.note)}</div>`:''}
+      </div>
+    </div>
+    <div class="editfields">
+      <label>店名<input type="text" data-k="shop_name" value="${esc(d.shop_name||'')}" placeholder="店铺名称"></label>
+      <label>地点<input type="text" data-k="location" value="${esc(d.location||'')}" placeholder="城市 / 地区" list="editcities"></label>
+      <label>省份<input type="text" data-k="province" value="${esc(d.province||'')}" placeholder="自动填充，可改"></label>
+      <label>置信度<select data-k="confidence">
+        <option value="high"${conf==='high'?' selected':''}>高 high</option>
+        <option value="medium"${conf==='medium'?' selected':''}>中 medium</option>
+        <option value="low"${conf==='low'?' selected':''}>低 low</option>
+      </select></label>
+      <label class="full">备注<input type="text" data-k="note" value="${esc(d.note||'')}" placeholder="补全后可清空"></label>
+      <div class="editrowbtns">
+        <span class="editbadge ${done?'done':'missing'}">${done?'✓ 已补全':'仍缺：'+miss.join('、')}</span>
+        <button class="toggle" data-act="reset">重置</button>
+      </div>
+    </div>
+  </div>`;
+}
+function renderEditList(){
+  const list = DATA.filter(d=>needsReview(d) || overrides[d.bvid]);
+  el('editTotal').textContent = list.length;
+  updateEditProgress(list);
+  el('editlist').innerHTML = list.map(editCardHTML).join('');
+  bindEditCards(list);
+}
+function updateEditProgress(list){
+  el('editDone').textContent = list.filter(d=>!needsReview(d)).length;
+  updateReviewStat();
+}
+function updateReviewStat(){
+  const n = DATA.filter(needsReview).length;
+  const node = el('statRev'); if(node) node.innerHTML=`<b>${n}</b>项待人工补全`;
+}
+function refreshCardBadge(card, d){
+  const miss = reviewReason(d), done = miss.length===0;
+  const badge = card.querySelector('.editbadge');
+  badge.className = 'editbadge ' + (done?'done':'missing');
+  badge.textContent = done?'✓ 已补全':('仍缺：'+miss.join('、'));
+}
+function autoProvince(card, d, loc){
+  const inp = card.querySelector('[data-k=province]');
+  const p = C2P[loc];
+  if(p){ d.province=p; inp.value=p; inp.classList.remove('unresolved'); saveOverride(d.bvid,{province:p}); }
+  else { inp.classList.toggle('unresolved', !!loc); }
+}
+function bindEditCards(list){
+  const byBvid = {}; list.forEach(d=>byBvid[d.bvid]=d);
+  const root = el('editlist');
+  root.oninput = (e)=>{
+    const t = e.target;
+    const card = t.closest('.editcard'); if(!card||!t.dataset.k) return;
+    const d = byBvid[card.dataset.bvid]; if(!d) return;
+    const k = t.dataset.k, v = t.value.trim();
+    d[k] = v;                                   // 直接改 DATA -> 列表/地图实时同步
+    saveOverride(d.bvid, {[k]: v});
+    if(k==='location') autoProvince(card, d, v);
+    refreshCardBadge(card, d);
+    updateEditProgress(list);
+  };
+  root.onclick = (e)=>{
+    const btn = e.target.closest('button[data-act]'); if(!btn) return;
+    const card = btn.closest('.editcard'); const d = byBvid[card.dataset.bvid]; if(!d) return;
+    if(btn.dataset.act==='reset'){
+      const o = ORIG[d.bvid];
+      if(o) Object.assign(d, o);
+      clearOverride(d.bvid);
+      renderEditList();
+    }
+  };
+}
+function exportOverrides(){
+  const blob = new Blob([JSON.stringify(overrides, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'manual_overrides.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+function copyOverrides(btn){
+  const text = JSON.stringify(overrides, null, 2);
+  const done = ()=>{ if(btn){const o=btn.textContent; btn.textContent='✓ 已复制'; setTimeout(()=>btn.textContent=o,1500);} };
+  const fallback = ()=>{ const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select();
+    try{document.execCommand('copy'); done();}catch(e){} ta.remove(); };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+  else fallback();
+}
+function enterEditMode(){
+  if(state._edit) return; state._edit=true;
+  document.querySelector('.bar').style.display='none';
+  el('mapview').style.display='none';
+  el('grid').style.display='none';
+  el('empty').style.display='none';
+  el('editview').style.display='block';
+  populateCityDatalist();
+  renderEditList();
+}
+function exitEditMode(){
+  if(!state._edit) return; state._edit=false;
+  el('editview').style.display='none';
+  document.querySelector('.bar').style.display='';
+  switchView('list'); renderList();
+  if(location.hash==='#edit') history.replaceState(null,'',location.pathname+location.search);
+}
+function syncEditFromHash(){ if(location.hash==='#edit') enterEditMode(); else if(state._edit) exitEditMode(); }
+window.addEventListener('hashchange', syncEditFromHash);
+
+applyOverrides();
 renderStats(); renderLocSelect(); bind(); renderList();
-el('foot').innerHTML=`数据源：${esc(META.source)} · 共 ${DATA.length} 条 · 生成于 ${esc(META.generated)}<br>地图底图来自 DataV.GeoAtlas，仅用于位置示意。店铺信息以原视频为准。`;
+syncEditFromHash();
+el('foot').innerHTML=`数据源：${esc(META.source)} · 共 ${DATA.length} 条 · 生成于 ${esc(META.generated)}<br>地图底图来自 DataV.GeoAtlas，仅用于位置示意。店铺信息以原视频为准。<br><a href="#edit" style="color:var(--accent);font-weight:600">✏️ 补全待补全数据</a>`;
 </script>
 </body>
 </html>
@@ -369,14 +589,40 @@ def httpsify(url):
     return url
 
 
+def apply_overrides(rows):
+    """读取 data/manual_overrides.json（若存在），按 bvid 把人工补全字段叠加到 rows。
+
+    overrides 形如 {"BVxxxx": {"shop_name": "...", "location": "...", ...}}。
+    文件不存在时静默跳过（向后兼容）。返回实际叠加的条数。
+    """
+    if not os.path.exists(OVERRIDES_PATH):
+        return 0
+    with open(OVERRIDES_PATH, encoding="utf-8") as f:
+        ov = json.load(f)
+    by_bvid = {r["bvid"]: r for r in rows}
+    fields = ("shop_name", "location", "province", "confidence", "note", "is_tandian")
+    n = 0
+    for bvid, patch in ov.items():
+        r = by_bvid.get(bvid)
+        if not r or not isinstance(patch, dict):
+            continue
+        for k in fields:
+            if k in patch:
+                r[k] = patch[k]
+        n += 1
+    return n
+
+
 def main():
     data_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DATA
     with open(data_path, encoding="utf-8") as f:
         rows = json.load(f)
     for r in rows:
         r["cover"] = httpsify(r.get("cover"))
+    applied = apply_overrides(rows)
     with open(GEO_PATH, encoding="utf-8") as f:
         geo = json.load(f)
+    c2p = build_city_to_province()
     meta = {
         "source": "Bilibili UID 3546888255048212（舌尖真探事务所 / 隋坡）",
         "generated": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -389,10 +635,12 @@ def main():
         .replace("__GEO__", json.dumps(geo, ensure_ascii=False))
         .replace("__COORDS__", json.dumps(CITY_COORDS, ensure_ascii=False))
         .replace("__PROVFULL__", json.dumps(PROV_FULL, ensure_ascii=False))
+        .replace("__C2P__", json.dumps(c2p, ensure_ascii=False))
     )
     with open(OUT_HTML, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"已生成 {OUT_HTML}（{len(rows)} 条，源 {data_path}，{len(html)//1024}KB）")
+    extra = f"，已叠加 {applied} 条人工补全" if applied else ""
+    print(f"已生成 {OUT_HTML}（{len(rows)} 条，源 {data_path}，{len(html)//1024}KB{extra}）")
 
 
 if __name__ == "__main__":
