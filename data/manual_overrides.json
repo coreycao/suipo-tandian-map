@@ -1,0 +1,43 @@
+{
+  "BV1TwTL6kEjk": {
+    "location": "重庆",
+    "province": "重庆"
+  },
+  "BV1cqRJBwEo6": {
+    "shop_name": "淮安宾馆",
+    "note": "",
+    "confidence": "high"
+  },
+  "BV17pREBQEDS": {
+    "location": "内蒙古",
+    "province": "内蒙古",
+    "note": ""
+  },
+  "BV1PE9tBpEek": {
+    "location": "扬州",
+    "province": "江苏",
+    "note": ""
+  },
+  "BV19UXxBFEj7": {
+    "shop_name": "老三家常菜",
+    "location": "洛阳",
+    "province": "河南",
+    "confidence": "high",
+    "note": ""
+  },
+  "BV1vbF6zREWD": {
+    "shop_name": "炸辣椒糊鱼",
+    "confidence": "high",
+    "note": ""
+  },
+  "BV1BxGXzbEis": {
+    "shop_name": "全聚德",
+    "confidence": "high",
+    "note": ""
+  },
+  "BV1AvJhzbE45": {
+    "shop_name": "水一方鱼馆",
+    "note": "",
+    "confidence": "high"
+  }
+}
