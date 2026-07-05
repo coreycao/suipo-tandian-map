@@ -4,3 +4,6 @@ __pycache__/
 *.log
 .playwright-mcp/
 .playwright/
+
+# 本地编辑器（build_site.py --editor 生成，含可视化补全 UI；不部署到公开站点）
+editor.html

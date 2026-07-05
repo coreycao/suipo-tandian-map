@@ -31,13 +31,15 @@ suipo-map/
 ├── data/
 │   ├── shops.json              # 最终结构化数据（119 条）
 │   ├── shops.csv               # 探店导出（102 条，Excel 友好，便于手工补全）
+│   ├── manual_overrides.json   # 人工补全补丁（可选，构建时自动叠加）
 │   ├── raw_full.json           # 原始 API 缓存（断点续抓用）
 │   └── full_run.log            # 全量抓取日志
 └── scripts/
     ├── bilibili_api.py         # WBI 签名 + 反爬指纹 + 风控退避重试
     ├── geo_data.py             # 中国行政区划字典（≈400 地名，用于位置识别）
     ├── extract.py              # 探店判定 / 店名提取 / 位置匹配 解析逻辑
-    ├── build_site.py           # 生成 index.html（含地图视图）
+    ├── build_site.py           # 生成 index.html（--editor 额外生成本地 editor.html）
+    ├── dev.py                  # 本地编辑服务器（起 http 服务 + POST /publish 一键发布）
     ├── china_geo.min.json      # 中国省界 GeoJSON（压缩版，地图底图）
     ├── run_full.py             # 全量抓取（断点续抓）
     ├── run_small_batch.py      # 小范围验证（12 条）
@@ -88,13 +90,32 @@ python3 scripts/run_small_batch.py --refresh
 
 这些是探店但**标题里没有明确店名**（如「特厨探店|济南最出名的老字号？！」）或**没有城市标签**的视频。网页中点「待补全」可单独筛选；CSV 的「备注」列写明了原因，可直接在 Excel 里补全。
 
-## 可视化补全（浏览器里直接改）
+## 可视化补全（本地编辑器 + 一键发布）
 
-也可以在网页里可视化补全这 21 项，不必改 CSV：
+补全那 21 项不必改 CSV——本地起一个编辑器，浏览器里直接填，填完点「🚀 一键发布」自动构建并推送到 GitHub Pages：
 
-1. 打开 `https://coreycao.github.io/suipo-tandian-map/#edit`（或页面底部「✏️ 补全待补全数据」链接），进入补全模式。
-2. 每条带封面/标题/原因/B 站链接，直接填**店名、地点、置信度、备注**；**省份按地点自动填充**（顺德/潮汕等待定地名需手填）。填齐后该条变「✓ 已补全」，顶部进度与首页「N 项待补全」实时更新。
-3. 编辑自动存浏览器本地（刷新不丢）。完成后点「⬇️ 导出」下载 `manual_overrides.json`。
-4. 把下载的文件覆盖到 `data/manual_overrides.json`，运行 `python3 scripts/build_site.py` 再提交推送即发布——构建时会自动叠加该文件，烘焙进公开站点。
+```bash
+# 启动本地编辑服务器
+python3 scripts/dev.py
+
+# 浏览器打开 http://localhost:8766/
+# 编辑 → 点「🚀 一键发布」→ 自动写 overrides → 重建 index.html → git commit && git push
+# GitHub Pages 随后自动部署
+```
+
+- 编辑器仅在本地 `editor.html`（已 gitignore，绝不部署到公开站点）。
+- 编辑自动存浏览器 localStorage，刷新不丢。
+- 省份按地点自动填充（顺德/潮汕等待定地名需手填）。
+- 填齐后该条变「✓ 已补全」，顶部进度与 hero 统计实时更新。
+
+**只想本地预览（不推送）**：
+
+```bash
+python3 scripts/dev.py --no-push   # 或 SUIPO_NO_PUSH=1 python3 scripts/dev.py
+```
+
+此模式会写文件 + 构建 + 本地 commit，但跳过 `git push`。之后可手动检查再 push。
+
+**端口**：默认 8766；可通过 `SUIPO_PORT` 环境变量自定义。
 
 > `data/manual_overrides.json` 是「人工层」，按 `bvid` 存补丁，不改动原始 `shops.json`；即便重新抓取也不会覆盖人工补全。

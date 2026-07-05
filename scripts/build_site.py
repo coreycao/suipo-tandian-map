@@ -1,8 +1,9 @@
 """读取 JSON 数据 -> 生成静态 index.html（JSON + 地图 GeoJSON 内嵌，可双击打开）。
 
 用法:
-  python3 build_site.py                       # 默认读 data/shops.json
-  python3 build_site.py data/shops_small.json # 指定数据源
+  python3 build_site.py                        # 默认读 data/shops.json，生成公开 index.html
+  python3 build_site.py data/shops_small.json  # 指定数据源
+  python3 build_site.py --editor               # 额外生成本地 editor.html（gitignore，含可视化补全 UI）
 """
 import datetime as dt
 import json
@@ -18,6 +19,7 @@ DEFAULT_DATA = os.path.join(ROOT, "data", "shops.json")
 OVERRIDES_PATH = os.path.join(ROOT, "data", "manual_overrides.json")
 GEO_PATH = os.path.join(HERE, "china_geo.min.json")
 OUT_HTML = os.path.join(ROOT, "index.html")
+EDITOR_HTML = os.path.join(ROOT, "editor.html")
 
 HTML = r"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -116,39 +118,6 @@ HTML = r"""<!DOCTYPE html>
   .empty{text-align:center; color:var(--muted); padding:60px 20px; font-size:14px}
   footer{margin-top:40px; font-size:12px; color:var(--muted); text-align:center; line-height:1.8}
   @media (max-width:560px){.grid{grid-template-columns:1fr} #map{height:420px}}
-
-  /* 补全模式（编辑待补全项） */
-  #editview{margin-top:18px}
-  .edittb{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-    box-shadow:var(--shadow); padding:14px 16px; margin-bottom:16px; display:flex; flex-direction:column; gap:10px}
-  .edittb .editprogress{font-size:15px; color:var(--ink)}
-  .edittb .editprogress b{color:var(--green); font-size:20px; font-weight:800}
-  .editbtns{display:flex; flex-wrap:wrap; gap:8px}
-  .editbtns .toggle{background:#fff}
-  .edithint{font-size:12px; color:var(--muted); line-height:1.7}
-  .edithint code{background:#f1ebe1; padding:1px 5px; border-radius:4px; font-size:11px; color:#7a4b22}
-  .editcard{display:grid; grid-template-columns:210px 1fr; gap:16px; background:var(--panel);
-    border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin-bottom:12px}
-  .editctx{display:flex; flex-direction:column; gap:8px; min-width:0}
-  .editcover{aspect-ratio:16/9; background:#eee; border-radius:8px; overflow:hidden}
-  .editcover img{width:100%; height:100%; object-fit:cover; display:block}
-  .editinfo{display:flex; flex-direction:column; gap:5px; min-width:0}
-  .edititle{font-size:13px; font-weight:600; color:var(--ink); display:-webkit-box; -webkit-line-clamp:3;
-    -webkit-box-orient:vertical; overflow:hidden}
-  .edititle:hover{color:var(--accent)}
-  .editmeta{font-size:11px; color:var(--muted)}
-  .editfields{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; align-content:start}
-  .editfields label{display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted)}
-  .editfields label.full{grid-column:1/-1}
-  .editfields input,.editfields select{padding:8px 10px; border:1px solid var(--line); border-radius:8px;
-    font-size:14px; background:#fff; color:var(--ink)}
-  .editfields input.unresolved{border-color:var(--amber); background:#fffdf5}
-  .editrowbtns{grid-column:1/-1; display:flex; align-items:center; gap:10px; margin-top:2px}
-  .editbadge{font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px}
-  .editbadge.done{background:#e7f4ec; color:var(--green)}
-  .editbadge.missing{background:var(--amber-bg); color:#8a5a12}
-  .editrowbtns .toggle{padding:6px 12px; font-size:12px}
-  @media (max-width:560px){.editcard{grid-template-columns:1fr} .editfields{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -199,21 +168,6 @@ HTML = r"""<!DOCTYPE html>
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none">没有符合条件的记录</div>
   <footer id="foot"></footer>
-
-  <div id="editview" style="display:none">
-    <datalist id="editcities"></datalist>
-    <div class="edittb">
-      <div class="editprogress"><b id="editDone">0</b> / <span id="editTotal">0</span> 已补全</div>
-      <div class="editbtns">
-        <button class="toggle" id="editExport">⬇️ 导出 manual_overrides.json</button>
-        <button class="toggle" id="editCopy">📋 复制 JSON</button>
-        <button class="toggle" id="editClear">🗑 清空本地缓存</button>
-        <button class="toggle" id="editExit">✕ 退出补全</button>
-      </div>
-      <div class="edithint">编辑会自动存到浏览器本地（刷新不丢）。导出后把文件覆盖到 <code>data/manual_overrides.json</code>，再运行 <code>python3 scripts/build_site.py</code> 并提交即可发布。省份会按地点自动填充（顺德/潮汕等待定地名需手填）。</div>
-    </div>
-    <div id="editlist"></div>
-  </div>
 </div>
 
 <script>
@@ -222,7 +176,6 @@ const META = __META__;
 const CHINA_GEO = __GEO__;
 const CITY_COORDS = __COORDS__;
 const PROV_FULL = __PROVFULL__;
-const C2P = __C2P__;
 
 const el = id => document.getElementById(id);
 const fmtPlay = n => n>=10000 ? (n/10000).toFixed(1)+'万' : (n!=null?n:'-');
@@ -378,16 +331,76 @@ function bind(){
   el('tReview').addEventListener('click',e=>{state.reviewOnly=!state.reviewOnly; e.target.classList.toggle('on',state.reviewOnly); state.view==='map'?renderMap():renderList();});
   el('vList').addEventListener('click',()=>switchView('list'));
   el('vMap').addEventListener('click',()=>switchView('map'));
-  el('editExport').addEventListener('click', exportOverrides);
-  el('editCopy').addEventListener('click', e=>copyOverrides(e.target));
-  el('editClear').addEventListener('click', clearAllOverrides);
-  el('editExit').addEventListener('click', exitEditMode);
 }
 
-/* ---- 补全模式：可视化编辑待补全项（localStorage 自动存档 + 导出） ---- */
+renderStats(); renderLocSelect(); bind(); renderList();
+el('foot').innerHTML=`数据源：${esc(META.source)} · 共 ${DATA.length} 条 · 生成于 ${esc(META.generated)}<br>地图底图来自 DataV.GeoAtlas，仅用于位置示意。店铺信息以原视频为准。`;
+</script>
+</body>
+</html>
+"""
+
+# 本地编辑器：注入到 editor.html 的 </body> 前（不进公开 index.html，已 gitignore）。
+# __C2P__ 在 --editor 构建时由 main() 替换。
+EDITOR = r"""
+<style>
+  /* 编辑器专用样式（与公开站隔离，避免选择器污染） */
+  #editview{margin-top:18px}
+  .edittb{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:14px 16px; margin-bottom:16px; display:flex; flex-direction:column; gap:10px}
+  .edittb .editprogress{font-size:15px; color:var(--ink)}
+  .edittb .editprogress b{color:var(--green); font-size:20px; font-weight:800}
+  .editbtns{display:flex; flex-wrap:wrap; gap:8px}
+  .editbtns .toggle{background:#fff}
+  .edithint{font-size:12px; color:var(--muted); line-height:1.7}
+  .edithint code{background:#f1ebe1; padding:1px 5px; border-radius:4px; font-size:11px; color:#7a4b22}
+  .editcard{display:grid; grid-template-columns:210px 1fr; gap:16px; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin-bottom:12px}
+  .editctx{display:flex; flex-direction:column; gap:8px; min-width:0}
+  .editcover{aspect-ratio:16/9; background:#eee; border-radius:8px; overflow:hidden}
+  .editcover img{width:100%; height:100%; object-fit:cover; display:block}
+  .editinfo{display:flex; flex-direction:column; gap:5px; min-width:0}
+  .edititle{font-size:13px; font-weight:600; color:var(--ink); display:-webkit-box; -webkit-line-clamp:3;
+    -webkit-box-orient:vertical; overflow:hidden}
+  .edititle:hover{color:var(--accent)}
+  .editmeta{font-size:11px; color:var(--muted)}
+  .editfields{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; align-content:start}
+  .editfields label{display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted)}
+  .editfields label.full{grid-column:1/-1}
+  .editfields input,.editfields select{padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; background:#fff; color:var(--ink)}
+  .editfields input.unresolved{border-color:var(--amber); background:#fffdf5}
+  .editrowbtns{grid-column:1/-1; display:flex; align-items:center; gap:10px; margin-top:2px}
+  .editbadge{font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px}
+  .editbadge.done{background:#e7f4ec; color:var(--green)}
+  .editbadge.missing{background:var(--amber-bg); color:#8a5a12}
+  .editrowbtns .toggle{padding:6px 12px; font-size:12px}
+  @media (max-width:560px){.editcard{grid-template-columns:1fr} .editfields{grid-template-columns:1fr 1fr}}
+</style>
+
+<div id="editview">
+  <datalist id="editcities"></datalist>
+  <div class="edittb">
+    <div class="editprogress"><b id="editDone">0</b> / <span id="editTotal">0</span> 已补全</div>
+    <div class="editbtns">
+      <button class="toggle" id="editPublish">🚀 一键发布</button>
+      <button class="toggle" id="editExport">⬇️ 导出 JSON</button>
+      <button class="toggle" id="editCopy">📋 复制 JSON</button>
+      <button class="toggle" id="editClear">🗑 清空本地</button>
+      <button class="toggle" id="editExit">✕ 退出补全</button>
+    </div>
+    <div class="edithint">编辑自动存浏览器本地（刷新不丢）。🚀 一键发布 会：写入 <code>data/manual_overrides.json</code> → 重建 <code>index.html</code> → <code>git commit && git push</code>（GitHub Pages 随后自动部署）。省份按地点自动填充（顺德/潮汕等待定地名需手填）。</div>
+  </div>
+  <div id="editlist"></div>
+</div>
+
+<script>
+const C2P = __C2P__;
+
+/* ---- 补全模式：可视化编辑待补全项（localStorage 自动存档） ---- */
 const OVERRIDES_KEY = 'suipo-overrides-v1';
 let overrides = {};
-const ORIG = {};  // bvid -> 加载时各可编辑字段的原始快照（用于「重置」）
+const ORIG = {};
 
 function loadOverrides(){
   try{ overrides = JSON.parse(localStorage.getItem(OVERRIDES_KEY)||'{}') || {}; }
@@ -398,7 +411,7 @@ function saveOverridesAll(){ localStorage.setItem(OVERRIDES_KEY, JSON.stringify(
 function saveOverride(bvid, patch){
   const cur = Object.assign(overrides[bvid]||{}, patch);
   overrides[bvid] = cur;
-  if(Object.values(cur).every(v=>v===''||v==null)) delete overrides[bvid];  // 全空视为无改动
+  if(Object.values(cur).every(v=>v===''||v==null)) delete overrides[bvid];
   saveOverridesAll();
 }
 function clearOverride(bvid){ delete overrides[bvid]; saveOverridesAll(); }
@@ -471,7 +484,8 @@ function updateEditProgress(list){
 }
 function updateReviewStat(){
   const n = DATA.filter(needsReview).length;
-  const node = el('statRev'); if(node) node.innerHTML=`<b>${n}</b>项待人工补全`;
+  const stat = document.querySelector('.stat:last-child');
+  if(stat) stat.innerHTML=`<b>${n}</b>项待人工补全`;
 }
 function refreshCardBadge(card, d){
   const miss = reviewReason(d), done = miss.length===0;
@@ -493,7 +507,7 @@ function bindEditCards(list){
     const card = t.closest('.editcard'); if(!card||!t.dataset.k) return;
     const d = byBvid[card.dataset.bvid]; if(!d) return;
     const k = t.dataset.k, v = t.value.trim();
-    d[k] = v;                                   // 直接改 DATA -> 列表/地图实时同步
+    d[k] = v;
     saveOverride(d.bvid, {[k]: v});
     if(k==='location') autoProvince(card, d, v);
     refreshCardBadge(card, d);
@@ -540,18 +554,52 @@ function exitEditMode(){
   el('editview').style.display='none';
   document.querySelector('.bar').style.display='';
   switchView('list'); renderList();
-  if(location.hash==='#edit') history.replaceState(null,'',location.pathname+location.search);
 }
-function syncEditFromHash(){ if(location.hash==='#edit') enterEditMode(); else if(state._edit) exitEditMode(); }
-window.addEventListener('hashchange', syncEditFromHash);
+
+/* ---- 一键发布 ---- */
+async function publishToServer(){
+  const n = Object.keys(overrides).length;
+  if(!confirm(`一键发布？\\n\\n将：写入 data/manual_overrides.json（${n} 条）→ 重建 index.html → git commit && git push。\\nGitHub Pages 随后自动部署。`)) return;
+  try{
+    const res = await fetch('/publish', {method:'POST', body: JSON.stringify(overrides)});
+    const data = await res.json();
+    if(data.ok){
+      const mode = data.pushed ? '已发布并推送' : (data.no_push ? '已写入并构建（未推送——请手动 git push）' : '已写入并构建');
+      alert(`✅ ${mode}。\\n覆盖 ${data.applied} 条。\\nGitHub Pages 稍后自动部署。`);
+    } else {
+      alert('❌ 发布失败：' + (data.error || '未知错误'));
+    }
+  } catch(e){
+    alert('❌ 连接本地服务器失败。请确认已运行：python3 scripts/dev.py');
+  }
+}
+async function checkServerStatus(){
+  try{
+    const res = await fetch('/status');
+    const data = await res.json();
+    if(data.ok){
+      el('editPublish').disabled = false;
+      el('editPublish').title = '';
+      return;
+    }
+  } catch(e){}
+  el('editPublish').disabled = true;
+  el('editPublish').title = '未连接本地服务器（请先运行 python3 scripts/dev.py）';
+  el('editPublish').style.opacity = '0.5';
+}
+
+function bindEditor(){
+  el('editPublish').addEventListener('click', publishToServer);
+  el('editExport').addEventListener('click', exportOverrides);
+  el('editCopy').addEventListener('click', e=>copyOverrides(e.target));
+  el('editClear').addEventListener('click', clearAllOverrides);
+  el('editExit').addEventListener('click', exitEditMode);
+}
 
 applyOverrides();
 renderStats(); renderLocSelect(); bind(); renderList();
-syncEditFromHash();
-el('foot').innerHTML=`数据源：${esc(META.source)} · 共 ${DATA.length} 条 · 生成于 ${esc(META.generated)}<br>地图底图来自 DataV.GeoAtlas，仅用于位置示意。店铺信息以原视频为准。<br><a href="#edit" style="color:var(--accent);font-weight:600">✏️ 补全待补全数据</a>`;
+bindEditor(); checkServerStatus(); enterEditMode();
 </script>
-</body>
-</html>
 """
 
 # 城市坐标表 [经度, 纬度]；按坐标合并可避免同点重叠（如"乌鲁木齐·新疆"）
@@ -614,7 +662,8 @@ def apply_overrides(rows):
 
 
 def main():
-    data_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DATA
+    data_path = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else DEFAULT_DATA
+    flags = set(a for a in sys.argv[1:] if a.startswith("--"))
     with open(data_path, encoding="utf-8") as f:
         rows = json.load(f)
     for r in rows:
@@ -628,7 +677,8 @@ def main():
         "generated": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "count": len(rows),
     }
-    html = (
+    # 基础替换（__C2P__ 在公开站已无用，但保留兼容）
+    base = (
         HTML
         .replace("__DATA__", json.dumps(rows, ensure_ascii=False))
         .replace("__META__", json.dumps(meta, ensure_ascii=False))
@@ -638,9 +688,15 @@ def main():
         .replace("__C2P__", json.dumps(c2p, ensure_ascii=False))
     )
     with open(OUT_HTML, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(base)
     extra = f"，已叠加 {applied} 条人工补全" if applied else ""
-    print(f"已生成 {OUT_HTML}（{len(rows)} 条，源 {data_path}，{len(html)//1024}KB{extra}）")
+    print(f"已生成 {OUT_HTML}（{len(rows)} 条，源 {data_path}，{len(base)//1024}KB{extra}）")
+
+    if "--editor" in flags:
+        ed = base.replace("</body>", EDITOR.replace("__C2P__", json.dumps(c2p, ensure_ascii=False)) + "\n</body>")
+        with open(EDITOR_HTML, "w", encoding="utf-8") as f:
+            f.write(ed)
+        print(f"已生成本地编辑器 {EDITOR_HTML}（{len(ed)//1024}KB，勿提交 / 已 gitignore）")
 
 
 if __name__ == "__main__":
