@@ -431,6 +431,7 @@ function applyOverrides(){
 }
 
 function reviewReason(d){
+  if(d.is_tandian===false) return [];  // 已标记为非探店，无需补全
   const miss=[];
   if(!d.shop_name) miss.push('店名');
   if(!d.location) miss.push('地点');
@@ -445,6 +446,7 @@ function editCardHTML(d){
   const miss = reviewReason(d), done = miss.length===0;
   const conf = d.confidence||'medium';
   const cover = d.cover?`<img loading="lazy" src="${esc(d.cover)}" alt="">`:'';
+  const badgeText = d.is_tandian===false ? '✕ 已移除非探店' : (done?'✓ 已补全':'仍缺：'+miss.join('、'));
   return `<div class="editcard" data-bvid="${esc(d.bvid)}">
     <div class="editctx">
       <div class="editcover">${cover}</div>
@@ -465,7 +467,10 @@ function editCardHTML(d){
       </select></label>
       <label class="full">备注<input type="text" data-k="note" value="${esc(d.note||'')}" placeholder="补全后可清空"></label>
       <div class="editrowbtns">
-        <span class="editbadge ${done?'done':'missing'}">${done?'✓ 已补全':'仍缺：'+miss.join('、')}</span>
+        <span class="editbadge ${done?'done':'missing'}">${badgeText}</span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-left:8px">
+          <input type="checkbox" data-k="is_tandian"${d.is_tandian===false?'':' checked'} style="width:16px;height:16px;cursor:pointer"> 探店
+        </label>
         <button class="toggle" data-act="reset">重置</button>
       </div>
     </div>
@@ -491,7 +496,7 @@ function refreshCardBadge(card, d){
   const miss = reviewReason(d), done = miss.length===0;
   const badge = card.querySelector('.editbadge');
   badge.className = 'editbadge ' + (done?'done':'missing');
-  badge.textContent = done?'✓ 已补全':('仍缺：'+miss.join('、'));
+  badge.textContent = d.is_tandian===false ? '✕ 已移除非探店' : (done?'✓ 已补全':('仍缺：'+miss.join('、')));
 }
 function autoProvince(card, d, loc){
   const inp = card.querySelector('[data-k=province]');
@@ -506,7 +511,8 @@ function bindEditCards(list){
     const t = e.target;
     const card = t.closest('.editcard'); if(!card||!t.dataset.k) return;
     const d = byBvid[card.dataset.bvid]; if(!d) return;
-    const k = t.dataset.k, v = t.value.trim();
+    const k = t.dataset.k;
+    const v = t.type==='checkbox' ? t.checked : t.value.trim();
     d[k] = v;
     saveOverride(d.bvid, {[k]: v});
     if(k==='location') autoProvince(card, d, v);
